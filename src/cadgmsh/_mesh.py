@@ -74,9 +74,7 @@ def mesh(
             all_dim_tags.append(list(dt))
 
         if imprint and len(shapes_list) > 1:
-            flat: list[tuple[int, int]] = [
-                dt for group in all_dim_tags for dt in group
-            ]
+            flat: list[tuple[int, int]] = [dt for group in all_dim_tags for dt in group]
             gmsh.model.occ.fragment(flat, [], removeObject=True, removeTool=True)
 
         gmsh.model.occ.synchronize()

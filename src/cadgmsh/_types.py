@@ -5,10 +5,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
-    from build123d import Shape as _B3DShape
-    from cadquery.occ_impl.shapes import (
-        Shape as _CQShape,  # type: ignore[import-untyped]
-    )
+    from build123d.topology import Shape as _B3DShape
+    from cadquery.occ_impl.shapes import Shape as _CQShape  # type: ignore
 
 
 @runtime_checkable

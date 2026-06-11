@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cadgmsh"
+version = "0.1.0"
+description = "Mesh CadQuery/build123d geometry with gmsh"
+authors = [{name = "David Straub", email = "straub@protonmail.com"}]
+license = {file = "LICENSE"}
+requires-python = ">=3.10"
+dependencies = [
+    "gmsh",
+    "meshio",
+    "numpy",
+]
+
+[project.urls]
+Repository = "https://github.com/DavidMStraub/cadgmsh"
+
+[project.optional-dependencies]
+test = ["pytest", "pytest-cov", "build123d", "cadquery"]
+dev  = ["cadgmsh[test]", "pyright", "ruff"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.pyright]
+include = ["src"]
+pythonVersion = "3.10"
+typeCheckingMode = "standard"
+
+[tool.ruff]
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B011"]   # allow assert False in tests

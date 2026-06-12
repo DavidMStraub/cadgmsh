@@ -48,11 +48,11 @@ cadgmsh.mesh(
 
 **`physical`** maps string labels to shapes (solids, faces, edges, or vertices). Labels become named cell sets in the returned mesh, usable for boundary conditions and material assignment.
 
-**`imprint`** runs `BooleanFragments` on all input shapes so that shared interfaces are meshed conformally. Required for multi-domain simulations. Note: interface faces tagged in `physical` will have their OCC pointer invalidated by the fragment operation — tag volumes instead.
+**`imprint`** runs `BooleanFragments` on all input shapes so that shared interfaces are meshed conformally. Required for multi-domain simulations. Note: interface faces tagged in `physical` will have their OCCT TShape pointer invalidated by the fragment operation — tag volumes instead.
 
 ## Custom shapes
 
-cadgmsh accepts any shape that exposes `.wrapped._address()` (OCP pybind11 pointer):
+cadgmsh accepts any shape whose `.wrapped` exposes `._address()` — the OCCT native pointer [OCP](https://github.com/CadQuery/OCP) provides on `TopoDS_*` objects:
 
 ```python
 from cadgmsh import OccShape

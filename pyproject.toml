@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cadgmsh"
-version = "0.1.0"
+version = "0.2.0"
 description = "Mesh CadQuery/build123d geometry with gmsh"
 authors = [{name = "David Straub", email = "straub@protonmail.com"}]
 license = {file = "LICENSE"}

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import os
 import tempfile
 
@@ -77,7 +78,8 @@ def mesh(
             _write_brep(compound, path)
             dim_tags = list(gmsh.model.occ.importShapes(path, highestDimOnly=False))
         finally:
-            os.unlink(path)
+            with contextlib.suppress(OSError):
+                os.unlink(path)
 
         if imprint and len(shapes_list) > 1:
             gmsh.model.occ.fragment(dim_tags, [], removeObject=True, removeTool=True)
@@ -89,7 +91,14 @@ def mesh(
                 entries: list[Shape] = value if isinstance(value, list) else [value]
                 tags_by_dim: dict[int, list[int]] = {}
                 for entry in entries:
-                    for d, t in shape_index.resolve(entry):
+                    resolved = shape_index.resolve(entry)
+                    if not resolved:
+                        raise ValueError(
+                            f"physical group {label!r}: a shape did not resolve to "
+                            "any gmsh entity (it may not belong to the meshed "
+                            "shapes, or its tag was invalidated by imprint)"
+                        )
+                    for d, t in resolved:
                         tags_by_dim.setdefault(d, []).append(t)
                 for d, tags in tags_by_dim.items():
                     pg = gmsh.model.addPhysicalGroup(d, tags)

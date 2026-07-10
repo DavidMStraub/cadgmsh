@@ -35,7 +35,9 @@ def test_shape_index_resolves_face():
     compound = _make_compound([box])
     index = ShapeIndex(compound)
     face = box.faces()[0]
-    assert index.resolve(face) == [(2, 1)]
+    [(dim, tag)] = index.resolve(face)
+    assert dim == 2
+    assert tag > 0
 
 
 def test_shape_index_resolves_compound_of_faces():

@@ -1,15 +1,8 @@
 import pytest
 
-from cadgmsh._occ import _pointer, _unwrap
+bd = pytest.importorskip("build123d")
 
-
-class _WithAddress:
-    def _address(self):
-        return 42
-
-
-class _WithThis:
-    this = 99
+from cadgmsh._occ import ShapeIndex, _make_compound, _unwrap  # noqa: E402
 
 
 def test_unwrap_passthrough():
@@ -26,36 +19,37 @@ def test_unwrap_unwraps():
     assert _unwrap(Wrapped()) is inner
 
 
-def test_pointer_address():
-    assert _pointer(_WithAddress()) == 42
+def _box():
+    return bd.Box(1, 1, 1)
 
 
-def test_pointer_this():
-    assert _pointer(_WithThis()) == 99
+def test_shape_index_resolves_solid():
+    box = _box()
+    compound = _make_compound([box])
+    index = ShapeIndex(compound)
+    assert index.resolve(box) == [(3, 1)]
 
 
-def test_pointer_wrapped_address():
-    class Shape:
-        wrapped = _WithAddress()
-
-    assert _pointer(Shape()) == 42
-
-
-def test_pointer_wrapped_this():
-    class Shape:
-        wrapped = _WithThis()
-
-    assert _pointer(Shape()) == 99
+def test_shape_index_resolves_face():
+    box = _box()
+    compound = _make_compound([box])
+    index = ShapeIndex(compound)
+    face = box.faces()[0]
+    assert index.resolve(face) == [(2, 1)]
 
 
-def test_pointer_raises_on_unknown():
-    with pytest.raises(TypeError):
-        _pointer(object())
+def test_shape_index_resolves_compound_of_faces():
+    box = _box()
+    compound = _make_compound([box])
+    index = ShapeIndex(compound)
+    faces = box.faces()
+    assert index.resolve(faces) == [index.resolve(f)[0] for f in faces]
 
 
-def test_pointer_raises_on_wrapped_unknown():
-    class Shape:
-        wrapped = object()
-
-    with pytest.raises(TypeError):
-        _pointer(Shape())
+def test_shape_index_multi_shape_offsets():
+    box1 = _box()
+    box2 = bd.Location((5, 0, 0)) * _box()
+    compound = _make_compound([box1, box2])
+    index = ShapeIndex(compound)
+    assert index.resolve(box1) == [(3, 1)]
+    assert index.resolve(box2) == [(3, 2)]

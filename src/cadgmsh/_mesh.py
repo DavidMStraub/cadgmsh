@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import os
+import tempfile
+
 import gmsh
 import meshio
 
 from cadgmsh._extract import _to_meshio
-from cadgmsh._occ import _pointer
-from cadgmsh._resolve import _resolve_tags
+from cadgmsh._occ import ShapeIndex, _make_compound, _write_brep
 from cadgmsh._types import Shape
 
 
@@ -66,16 +68,19 @@ def mesh(
         if lc_min is not None:
             gmsh.option.setNumber("Mesh.CharacteristicLengthMin", lc_min)
 
-        all_dim_tags: list[list[tuple[int, int]]] = []
-        for s in shapes_list:
-            dt = gmsh.model.occ.importShapesNativePointer(
-                _pointer(s), highestDimOnly=False
-            )
-            all_dim_tags.append(list(dt))
+        compound = _make_compound(shapes_list)
+        shape_index = ShapeIndex(compound)
+
+        fd, path = tempfile.mkstemp(suffix=".brep")
+        os.close(fd)
+        try:
+            _write_brep(compound, path)
+            dim_tags = list(gmsh.model.occ.importShapes(path, highestDimOnly=False))
+        finally:
+            os.unlink(path)
 
         if imprint and len(shapes_list) > 1:
-            flat: list[tuple[int, int]] = [dt for group in all_dim_tags for dt in group]
-            gmsh.model.occ.fragment(flat, [], removeObject=True, removeTool=True)
+            gmsh.model.occ.fragment(dim_tags, [], removeObject=True, removeTool=True)
 
         gmsh.model.occ.synchronize()
 
@@ -84,7 +89,7 @@ def mesh(
                 entries: list[Shape] = value if isinstance(value, list) else [value]
                 tags_by_dim: dict[int, list[int]] = {}
                 for entry in entries:
-                    for d, t in _resolve_tags(entry):
+                    for d, t in shape_index.resolve(entry):
                         tags_by_dim.setdefault(d, []).append(t)
                 for d, tags in tags_by_dim.items():
                     pg = gmsh.model.addPhysicalGroup(d, tags)

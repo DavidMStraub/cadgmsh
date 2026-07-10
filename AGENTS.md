@@ -1,6 +1,6 @@
 # cadgmsh — agent context
 
-Pythonic gmsh wrapper for meshing OCC-based CAD (cadquery / build123d). No temp files, no exposed `initialize`/`finalize`.
+Pythonic gmsh wrapper for meshing OCC-based CAD (cadquery / build123d). No exposed `initialize`/`finalize`.
 
 ## Architecture
 
@@ -8,17 +8,18 @@ Pythonic gmsh wrapper for meshing OCC-based CAD (cadquery / build123d). No temp 
 src/cadgmsh/
 ├── __init__.py    — public API: mesh(), OccShape, Shape
 ├── _types.py      — Shape alias + OccShape Protocol (centralized types)
-├── _occ.py        — _unwrap(), _pointer()  (OCC pointer extraction)
-├── _resolve.py    — _resolve_tags()        (gmsh tag lookup by OCC pointer)
+├── _occ.py        — _unwrap(), _make_compound(), ShapeIndex (BREP-index-based tag resolution)
 ├── _extract.py    — _to_meshio()           (gmsh → meshio.Mesh)
 └── _mesh.py       — mesh()                 (public entry point)
 ```
 
 ## Key design decisions
 
-**No temp files.** `gmsh.model.occ.importShapesNativePointer(shape.wrapped._address())` imports OCC topology by memory pointer. OCP (pybind11) exposes `._address()` on `TopoDS_*` objects.
+**BREP import, not native pointer.** `mesh()` bundles all input shapes into one `TopoDS_Compound`, writes it to a temp `.brep` file, and imports it via `gmsh.model.occ.importShapes()`.
 
-**Physical group resolution.** After `synchronize()`, re-importing a sub-shape pointer returns existing gmsh tags (gmsh tracks topology by `TShape` pointer identity). No geometric search needed.
+We previously used `gmsh.model.occ.importShapesNativePointer()` to import OCC topology by memory pointer, avoiding any temp file. This broke whenever gmsh's statically-linked OCCT version differs from the CAD library's (e.g. gmsh 4.15.2 bundles OCCT 7.8, `cadquery-ocp` ships 7.9.3.1) — passing a raw pointer between two independently compiled OCCT builds works for most shapes but corrupts periodic-surface continuity data, raising `GeomAdaptor_Surface::UContinuity`. A BREP file round-trip sidesteps the ABI mismatch entirely (each library reads/writes with its own OCCT, and BREP is a stable serialization contract), at the cost of one small temp file per `mesh()` call.
+
+**Physical group resolution.** Sub-shape → gmsh tag resolution no longer relies on pointer identity (which a file round-trip destroys). Instead, `ShapeIndex` builds a `TopTools_IndexedMapOfShape` per dimension via `TopExp.MapShapes_s` over the same compound that gets written to BREP. This is the same canonical indexing algorithm `BRepTools_ShapeSet` uses internally when writing/reading BREP, so a sub-shape's index here is guaranteed to equal the gmsh tag assigned when importing that BREP file — no geometric search, no pointer identity, and it survives the OCCT-version mismatch that broke the old approach.
 
 **Lifecycle.** `gmsh.initialize()` / `gmsh.finalize()` are scoped inside `mesh()` via `try/finally`. Callers never touch them.
 
@@ -41,7 +42,7 @@ ruff format --check src/ tests/     # format check only
 ```
 
 Test matrix:
-- `test_occ.py` — mock-based, no gmsh or OCC required
+- `test_occ.py` — `ShapeIndex`/compound unit tests, requires build123d, no gmsh required
 - `test_extract.py` — real gmsh session, no OCC shapes
 - `test_mesh.py` — full integration, requires build123d (skipped if absent)
 

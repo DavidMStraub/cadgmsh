@@ -28,7 +28,8 @@ We previously used `gmsh.model.occ.importShapesNativePointer()` to import OCC to
 ## Known limitations
 
 - `imprint=True` with coincident/touching faces triggers a segfault inside OCC's Boolean kernel that cannot be caught as a Python exception. Verified safe with non-overlapping and gapped shapes.
-- Face tagging + `imprint=True`: interface faces have their `TShape` pointer invalidated by `fragment`. Volume tagging + imprinting is confirmed correct.
+- Face tagging + `imprint=True`: `fragment` creates new entities for any interface it touches, so the pre-fragment `ShapeIndex` can't resolve those faces to the fragmented result. Volume tagging + imprinting is confirmed correct.
+- `cadquery` is only installed in the `test`/`dev` extras on Python >=3.11 (`cadquery; python_version >= '3.11'` in `pyproject.toml`). The last `cadquery` release supporting 3.10 (`2.7.0`) hard-pins `cadquery-ocp<7.9`, which is incompatible with current `build123d` releases (`TopoDS.Vertex` vs `Vertex_s` naming) — installing both on 3.10 breaks collection before any cadgmsh code runs. No test currently imports `cadquery` directly, so this doesn't reduce coverage.
 
 ## Development commands
 

@@ -1,6 +1,6 @@
 # cadgmsh
 
-Mesh [CadQuery](https://github.com/CadQuery/cadquery) / [build123d](https://github.com/gumyr/build123d) geometry with [gmsh](https://gmsh.info). No temp files, no exposed `initialize`/`finalize`.
+Mesh [CadQuery](https://github.com/CadQuery/cadquery) / [build123d](https://github.com/gumyr/build123d) geometry with [gmsh](https://gmsh.info). No exposed `initialize`/`finalize`.
 
 ```python
 import cadgmsh
@@ -48,18 +48,18 @@ cadgmsh.mesh(
 
 **`physical`** maps string labels to shapes (solids, faces, edges, or vertices). Labels become named cell sets in the returned mesh, usable for boundary conditions and material assignment.
 
-**`imprint`** runs `BooleanFragments` on all input shapes so that shared interfaces are meshed conformally. Required for multi-domain simulations. Note: interface faces tagged in `physical` will have their OCCT TShape pointer invalidated by the fragment operation — tag volumes instead.
+**`imprint`** runs `BooleanFragments` on all input shapes so that shared interfaces are meshed conformally. Required for multi-domain simulations. Note: `fragment` creates new entities for any interface it touches, so faces tagged in `physical` that lie on a shared interface won't resolve to the fragmented result — tag volumes instead.
 
 ## Custom shapes
 
-cadgmsh accepts any shape whose `.wrapped` exposes `._address()` — the OCCT native pointer [OCP](https://github.com/CadQuery/OCP) provides on `TopoDS_*` objects:
+cadgmsh accepts any shape whose `.wrapped` returns an [OCP](https://github.com/CadQuery/OCP) `TopoDS_Shape`:
 
 ```python
 from cadgmsh import OccShape
 
 class MyShape:
     @property
-    def wrapped(self) -> object:  # must have ._address()
+    def wrapped(self) -> object:  # an OCP TopoDS_Shape
         return self._occ_shape
 ```
 

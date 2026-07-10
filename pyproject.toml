@@ -13,13 +13,14 @@ dependencies = [
     "gmsh",
     "meshio",
     "numpy",
+    "cadquery-ocp",
 ]
 
 [project.urls]
 Repository = "https://github.com/DavidMStraub/cadgmsh"
 
 [project.optional-dependencies]
-test = ["pytest", "pytest-cov", "build123d", "cadquery"]
+test = ["pytest", "pytest-cov", "build123d", "cadquery; python_version >= '3.11'"]
 dev  = ["cadgmsh[test]", "pyright", "ruff"]
 
 [tool.setuptools.packages.find]

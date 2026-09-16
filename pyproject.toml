@@ -13,8 +13,12 @@ dependencies = [
     "gmsh",
     "meshio",
     "numpy",
-    # OCCT 7.x and 8.x are both supported; see _occ.py for the import shim.
-    "cadquery-ocp>=7.8,<9",
+    # NOTE: OCP is deliberately *not* declared here. It ships as two rival
+    # distributions -- cadquery-ocp and cadquery-ocp-novtk -- that both install
+    # into the same `OCP/` package, so pinning either one can silently mix
+    # halves of two OCCT versions with whatever build123d/cadquery pulled in.
+    # The CAD library the caller already needs brings its own; _occ.py adapts
+    # to OCCT 7 or 8 at import time.
 ]
 
 [project.urls]

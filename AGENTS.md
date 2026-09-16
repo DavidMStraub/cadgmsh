@@ -39,6 +39,12 @@ so OCCT 8 still emits a BREP that gmsh's bundled OCCT 7.8 can read, and the
 `ShapeIndex` → gmsh tag correspondence survives the version gap (verified end-to-end by
 `tests/test_raw_occ.py` under OCCT 8).
 
+**Do not add OCP back to `dependencies`.** `cadquery-ocp` and `cadquery-ocp-novtk`
+install into the same `OCP/` package and only coexist at matching versions; `cadquery`
+depends on one, `build123d` on the other. Any pin here is a competing vote — a
+`cadquery-ocp>=7.8,<9` pin once gave Python 3.14 a mixed OCP 8 + novtk 7.9 install that
+failed to import. Let the CAD library choose; the shim adapts.
+
 **Type system.** `Shape` is `build123d.Shape | cadquery.Shape | OccShape` under `TYPE_CHECKING`; at runtime it resolves to `OccShape` (a `runtime_checkable Protocol`). `Any` is intentionally limited to `_occ.py` where OCP has no stubs.
 
 ## Known limitations
@@ -46,7 +52,8 @@ so OCCT 8 still emits a BREP that gmsh's bundled OCCT 7.8 can read, and the
 - `imprint=True` with coincident/touching faces triggers a segfault inside OCC's Boolean kernel that cannot be caught as a Python exception. Verified safe with non-overlapping and gapped shapes.
 - Face tagging + `imprint=True`: `fragment` creates new entities for any interface it touches, so the pre-fragment `ShapeIndex` can't resolve those faces to the fragmented result. Volume tagging + imprinting is confirmed correct.
 - Python 3.11–3.14 (`requires-python = ">=3.11,<3.15"`). The floor is 3.11 because `cadquery` and `cadquery-ocp` 8 both require it; the ceiling tracks `cadquery-ocp`'s own `<3.15`.
-- `build123d` and `cadquery` both still pin `cadquery-ocp<8.0`, so an environment with either of them installed resolves to OCCT 7 no matter what cadgmsh allows. OCCT 8 is only reachable today by installing cadgmsh without them and driving it with raw OCP shapes — which is exactly what the `test-occt8` CI job does. Lift nothing here when they catch up; the shim handles both.
+- `build123d` and `cadquery` both still pin `cadquery-ocp<8.0`, so an environment with either of them installed resolves to OCCT 7. OCCT 8 is only reachable today by installing cadgmsh *without* them and driving it with raw OCP shapes — which is exactly what the `test-occt8` CI job does. Nothing needs lifting when they catch up; the shim handles both.
+- Because cadgmsh declares no OCP dependency, `pip install cadgmsh` on its own gives you a package that cannot import until a CAD library (or an explicit `cadquery-ocp`) is present. That is intentional — see the dual-support section — and matches the README, which already lists CadQuery/build123d as required but undeclared.
 
 ## Development commands
 

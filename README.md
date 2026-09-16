@@ -27,9 +27,7 @@ Returns a [`meshio.Mesh`](https://github.com/nschloe/meshio). Works with [CadQue
 pip install cadgmsh
 ```
 
-Requires [CadQuery](https://github.com/CadQuery/cadquery) or [build123d](https://github.com/gumyr/build123d) in your environment — neither is a hard dependency of cadgmsh itself.
-
-Python 3.11–3.14. Works with `cadquery-ocp` 7.x and 8.x (OCCT 7 and OCCT 8).
+Requires Python 3.11–3.14 and [CadQuery](https://github.com/CadQuery/cadquery) or [build123d](https://github.com/gumyr/build123d) in your environment — neither is a hard dependency of cadgmsh itself.
 
 ## API
 

@@ -21,13 +21,20 @@ from OCP.TopoDS import (
 # ready-made ``TopTools_IndexedMapOfShape`` typedef, while OCCT 8 publishes the
 # NCollection template instantiations under ``OCP.collections`` instead. Both
 # are the same container, so one alias covers both.
+#
+# Exactly one of these two imports resolves for any given OCCT version, so
+# whichever one pyright is checking against, the other is always "broken" --
+# and *which* diagnostic it raises depends on the installed stubs (a missing
+# module gives reportMissingImports, a present module missing the symbol gives
+# reportAttributeAccessIssue). Both codes are suppressed on both branches so
+# the type check does not depend on which OCP happens to be installed.
 try:
-    from OCP.TopTools import (
+    from OCP.TopTools import (  # pyright: ignore[reportMissingImports]
         TopTools_IndexedMapOfShape as _IndexedMapOfShape,  # pyright: ignore[reportAttributeAccessIssue]
     )
 except ImportError:  # OCCT >= 8
     from OCP.collections import (  # pyright: ignore[reportMissingImports]
-        IndexedMap_TopoDS_Shape_TopTools_ShapeMapHasher as _IndexedMapOfShape,
+        IndexedMap_TopoDS_Shape_TopTools_ShapeMapHasher as _IndexedMapOfShape,  # pyright: ignore[reportAttributeAccessIssue]
     )
 
 from cadgmsh._types import Shape

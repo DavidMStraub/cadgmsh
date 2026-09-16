@@ -4,23 +4,24 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cadgmsh"
-version = "0.2.0"
+version = "0.3.0"
 description = "Mesh CadQuery/build123d geometry with gmsh"
 authors = [{name = "David Straub", email = "straub@protonmail.com"}]
 license = {file = "LICENSE"}
-requires-python = ">=3.10"
+requires-python = ">=3.11,<3.15"
 dependencies = [
     "gmsh",
     "meshio",
     "numpy",
-    "cadquery-ocp",
+    # OCCT 7.x and 8.x are both supported; see _occ.py for the import shim.
+    "cadquery-ocp>=7.8,<9",
 ]
 
 [project.urls]
 Repository = "https://github.com/DavidMStraub/cadgmsh"
 
 [project.optional-dependencies]
-test = ["pytest", "pytest-cov", "build123d", "cadquery; python_version >= '3.11'"]
+test = ["pytest", "pytest-cov", "build123d", "cadquery"]
 dev  = ["cadgmsh[test]", "pyright", "ruff"]
 
 [tool.setuptools.packages.find]
@@ -32,7 +33,7 @@ pythonpath = ["src"]
 
 [tool.pyright]
 include = ["src"]
-pythonVersion = "3.10"
+pythonVersion = "3.11"
 typeCheckingMode = "standard"
 
 [tool.ruff]

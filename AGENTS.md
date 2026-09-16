@@ -9,6 +9,7 @@ src/cadgmsh/
 ├── __init__.py    — public API: mesh(), OccShape, Shape
 ├── _types.py      — Shape alias + OccShape Protocol (centralized types)
 ├── _occ.py        — _unwrap(), _make_compound(), ShapeIndex (BREP-index-based tag resolution)
+│                    also the single OCP import boundary + the OCCT 7/8 shim
 ├── _extract.py    — _to_meshio()           (gmsh → meshio.Mesh)
 └── _mesh.py       — mesh()                 (public entry point)
 ```
@@ -23,13 +24,29 @@ We previously used `gmsh.model.occ.importShapesNativePointer()` to import OCC to
 
 **Lifecycle.** `gmsh.initialize()` / `gmsh.finalize()` are scoped inside `mesh()` via `try/finally`. Callers never touch them.
 
+**OCCT 7 / OCCT 8 dual support.** `cadquery-ocp` 8 (OCCT 8.0) is a breaking change for
+downstream code: OCCT 8 stopped exposing the ready-made `NCollection` typedefs as module
+attributes and publishes the template instantiations under a new `OCP.collections` module
+instead. The only one cadgmsh touches is the indexed shape map —
+`OCP.TopTools.TopTools_IndexedMapOfShape` (OCCT 7) vs
+`OCP.collections.IndexedMap_TopoDS_Shape_TopTools_ShapeMapHasher` (OCCT 8) — so `_occ.py`
+aliases whichever is importable to `_IndexedMapOfShape`. Everything else we use
+(`BRepTools.Write_s`, `TopExp.MapShapes_s`, `TopoDS_Builder/Compound/Iterator`, the
+`TopAbs_*` enums) is unchanged across the two.
+
+`BRepTools.Write_s(shape, path)` defaults to `TopTools_FormatVersion_VERSION_1` on both,
+so OCCT 8 still emits a BREP that gmsh's bundled OCCT 7.8 can read, and the
+`ShapeIndex` → gmsh tag correspondence survives the version gap (verified end-to-end by
+`tests/test_raw_occ.py` under OCCT 8).
+
 **Type system.** `Shape` is `build123d.Shape | cadquery.Shape | OccShape` under `TYPE_CHECKING`; at runtime it resolves to `OccShape` (a `runtime_checkable Protocol`). `Any` is intentionally limited to `_occ.py` where OCP has no stubs.
 
 ## Known limitations
 
 - `imprint=True` with coincident/touching faces triggers a segfault inside OCC's Boolean kernel that cannot be caught as a Python exception. Verified safe with non-overlapping and gapped shapes.
 - Face tagging + `imprint=True`: `fragment` creates new entities for any interface it touches, so the pre-fragment `ShapeIndex` can't resolve those faces to the fragmented result. Volume tagging + imprinting is confirmed correct.
-- `cadquery` is only installed in the `test`/`dev` extras on Python >=3.11 (`cadquery; python_version >= '3.11'` in `pyproject.toml`). The last `cadquery` release supporting 3.10 (`2.7.0`) hard-pins `cadquery-ocp<7.9`, which is incompatible with current `build123d` releases (`TopoDS.Vertex` vs `Vertex_s` naming) — installing both on 3.10 breaks collection before any cadgmsh code runs. No test currently imports `cadquery` directly, so this doesn't reduce coverage.
+- Python 3.11–3.14 (`requires-python = ">=3.11,<3.15"`). The floor is 3.11 because `cadquery` and `cadquery-ocp` 8 both require it; the ceiling tracks `cadquery-ocp`'s own `<3.15`.
+- `build123d` and `cadquery` both still pin `cadquery-ocp<8.0`, so an environment with either of them installed resolves to OCCT 7 no matter what cadgmsh allows. OCCT 8 is only reachable today by installing cadgmsh without them and driving it with raw OCP shapes — which is exactly what the `test-occt8` CI job does. Lift nothing here when they catch up; the shim handles both.
 
 ## Development commands
 
@@ -46,7 +63,8 @@ Test matrix:
 - `test_occ.py` — `ShapeIndex`/compound unit tests, requires build123d, no gmsh required
 - `test_extract.py` — real gmsh session, no OCC shapes
 - `test_mesh.py` — full integration, requires build123d (skipped if absent)
+- `test_raw_occ.py` — same paths driven by raw `OCP` shapes only, so it runs on any supported OCCT version (this is the OCCT 8 coverage)
 
 ## CI
 
-GitHub Actions runs `lint` (ruff + pyright) and `test` (pytest) on Python 3.10 and 3.13. A separate `release` workflow publishes to PyPI on `v*` tags via OIDC trusted publishing.
+GitHub Actions runs `lint` (ruff + pyright), `test` (pytest) on Python 3.11 and 3.14 against OCCT 7, and `test-occt8` (OCCT 8, no build123d/cadquery). A separate `release` workflow publishes to PyPI on `v*` tags via OIDC trusted publishing.

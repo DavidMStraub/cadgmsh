@@ -23,7 +23,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.14"]
+        python-version: ["3.11", "3.14"]
     steps:
       - uses: actions/checkout@v7
 
@@ -46,3 +46,26 @@ jobs:
 
       - name: Test
         run: pytest --tb=short
+
+  # build123d/cadquery still pin cadquery-ocp<8, so the job above always
+  # resolves to OCCT 7.x. This one installs OCCT 8 without them and runs the
+  # OCP-only tests, which is what keeps the _occ.py import shim honest.
+  test-occt8:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
+      - name: Install system libs
+        run: sudo apt-get install -y libgl1-mesa-dev libglu1-mesa-dev
+
+      - name: Install package with OCCT 8
+        run: |
+          pip install -e . pytest
+          pip install "cadquery-ocp>=8,<9"
+
+      - name: Test
+        run: pytest --tb=short tests/test_raw_occ.py tests/test_extract.py

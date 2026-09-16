@@ -16,9 +16,19 @@ from OCP.TopoDS import (
     TopoDS_Compound,  # pyright: ignore[reportAttributeAccessIssue]
     TopoDS_Iterator,  # pyright: ignore[reportAttributeAccessIssue]
 )
-from OCP.TopTools import (
-    TopTools_IndexedMapOfShape,  # pyright: ignore[reportAttributeAccessIssue]
-)
+
+# The indexed shape map moved between OCCT major versions: OCCT 7 exposes the
+# ready-made ``TopTools_IndexedMapOfShape`` typedef, while OCCT 8 publishes the
+# NCollection template instantiations under ``OCP.collections`` instead. Both
+# are the same container, so one alias covers both.
+try:
+    from OCP.TopTools import (
+        TopTools_IndexedMapOfShape as _IndexedMapOfShape,  # pyright: ignore[reportAttributeAccessIssue]
+    )
+except ImportError:  # OCCT >= 8
+    from OCP.collections import (  # pyright: ignore[reportMissingImports]
+        IndexedMap_TopoDS_Shape_TopTools_ShapeMapHasher as _IndexedMapOfShape,
+    )
 
 from cadgmsh._types import Shape
 
@@ -68,9 +78,9 @@ class ShapeIndex:
     """
 
     def __init__(self, compound: Any) -> None:
-        self._maps: dict[int, TopTools_IndexedMapOfShape] = {}
+        self._maps: dict[int, Any] = {}
         for dim, topabs in _TOPABS_BY_DIM.items():
-            m = TopTools_IndexedMapOfShape()
+            m = _IndexedMapOfShape()
             TopExp.MapShapes_s(compound, topabs, m)
             self._maps[dim] = m
 

@@ -22,6 +22,10 @@ We previously used `gmsh.model.occ.importShapesNativePointer()` to import OCC to
 
 **Physical group resolution.** Sub-shape → gmsh tag resolution no longer relies on pointer identity (which a file round-trip destroys). Instead, `ShapeIndex` builds a `TopTools_IndexedMapOfShape` per dimension via `TopExp.MapShapes_s` over the same compound that gets written to BREP. This is the same canonical indexing algorithm `BRepTools_ShapeSet` uses internally when writing/reading BREP, so a sub-shape's index here is guaranteed to equal the gmsh tag assigned when importing that BREP file — no geometric search, no pointer identity, and it survives the OCCT-version mismatch that broke the old approach.
 
+**`__cad_interface__` input.** Objects with a `__cad_interface__` method (the proposed protocol, https://github.com/DavidMStraub/cad-interface) are asked for `ocp`, `brep_text` or `brep_binary` and decoded to a raw OCP shape in `_occ._convert`; this takes precedence over `.wrapped`. Assemblies are flattened into one compound of placed parts, and every named node becomes a physical group of the parts below it. `mesh()` converts each input once and passes the results to `ShapeIndex`, because decoding a BREP payload again would give a new shape that no longer resolves. Physical entries that are sub-shapes of a serialised (non-`ocp`) object therefore can't be resolved; whole input objects and assembly names can.
+
+**BREP export options.** `_write_brep` passes format version 1 and no triangulation explicitly: the path-only `BRepTools.Write_s` overload includes any triangulation a shape carries (e.g. after being displayed), which gmsh ignores.
+
 **Lifecycle.** `gmsh.initialize()` / `gmsh.finalize()` are scoped inside `mesh()` via `try/finally`. Callers never touch them.
 
 **OCCT 7 / OCCT 8 dual support.** `cadquery-ocp` 8 (OCCT 8.0) is a breaking change for
@@ -71,6 +75,7 @@ Test matrix:
 - `test_extract.py` — real gmsh session, no OCC shapes
 - `test_mesh.py` — full integration, requires build123d (skipped if absent)
 - `test_raw_occ.py` — same paths driven by raw `OCP` shapes only, so it runs on any supported OCCT version (this is the OCCT 8 coverage)
+- `test_cad_interface.py` — `__cad_interface__` shapes and assemblies from a hand-written producer on raw `OCP`, also OCCT-version independent
 
 ## CI
 

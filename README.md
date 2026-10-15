@@ -63,6 +63,8 @@ class MyShape:
         return self._occ_shape
 ```
 
+It also accepts shapes and assemblies from any library that implements the proposed [`__cad_interface__`](https://github.com/DavidMStraub/cad-interface) protocol, in the formats `ocp`, `brep_text` or `brep_binary`. Named assembly nodes become physical groups containing every part below them; nodes with the same name share one group. A `physical` label with the same name is merged into it.
+
 ## License
 
 MIT

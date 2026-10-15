@@ -1,20 +1,35 @@
 from __future__ import annotations
 
+import io
 from typing import Any
 
+from OCP.BinTools import BinTools  # pyright: ignore[reportAttributeAccessIssue]
+from OCP.BRep import BRep_Builder  # pyright: ignore[reportAttributeAccessIssue]
 from OCP.BRepTools import BRepTools  # pyright: ignore[reportAttributeAccessIssue]
+from OCP.gp import gp_Trsf  # pyright: ignore[reportAttributeAccessIssue]
+from OCP.Message import (
+    Message_ProgressRange,  # pyright: ignore[reportAttributeAccessIssue]
+)
 from OCP.TopAbs import (
     TopAbs_COMPOUND,  # pyright: ignore[reportAttributeAccessIssue]
+    TopAbs_COMPSOLID,  # pyright: ignore[reportAttributeAccessIssue]
     TopAbs_EDGE,  # pyright: ignore[reportAttributeAccessIssue]
     TopAbs_FACE,  # pyright: ignore[reportAttributeAccessIssue]
+    TopAbs_SHELL,  # pyright: ignore[reportAttributeAccessIssue]
     TopAbs_SOLID,  # pyright: ignore[reportAttributeAccessIssue]
     TopAbs_VERTEX,  # pyright: ignore[reportAttributeAccessIssue]
+    TopAbs_WIRE,  # pyright: ignore[reportAttributeAccessIssue]
 )
 from OCP.TopExp import TopExp  # pyright: ignore[reportAttributeAccessIssue]
+from OCP.TopLoc import TopLoc_Location  # pyright: ignore[reportAttributeAccessIssue]
 from OCP.TopoDS import (
     TopoDS_Builder,  # pyright: ignore[reportAttributeAccessIssue]
     TopoDS_Compound,  # pyright: ignore[reportAttributeAccessIssue]
     TopoDS_Iterator,  # pyright: ignore[reportAttributeAccessIssue]
+    TopoDS_Shape,  # pyright: ignore[reportAttributeAccessIssue]
+)
+from OCP.TopTools import (
+    TopTools_FormatVersion,  # pyright: ignore[reportAttributeAccessIssue]
 )
 
 # The indexed shape map moved between OCCT major versions: OCCT 7 exposes the
@@ -40,14 +55,85 @@ except ImportError:  # OCCT >= 8
 from cadgmsh._types import Shape
 
 _TOPABS_BY_DIM = {3: TopAbs_SOLID, 2: TopAbs_FACE, 1: TopAbs_EDGE, 0: TopAbs_VERTEX}
+# Shapes that aren't indexed themselves, only their members are
+_CONTAINERS = (TopAbs_COMPOUND, TopAbs_COMPSOLID, TopAbs_SHELL, TopAbs_WIRE)
+
+# __cad_interface__ formats cadgmsh can turn into an OCP shape, most preferred first
+_ACCEPT = ("ocp", "brep_text", "brep_binary")
 
 
 def _unwrap(shape: Shape) -> Any:
     """Return the raw OCP ``TopoDS_*`` object, or pass through if already unwrapped."""
-    return shape.wrapped if hasattr(shape, "wrapped") else shape
+    if hasattr(shape, "__cad_interface__"):
+        return _convert(shape)[0]
+    return shape.wrapped if hasattr(shape, "wrapped") else shape  # pyright: ignore[reportAttributeAccessIssue]
 
 
-def _make_compound(shapes: list[Shape]) -> Any:
+def _convert(shape: Shape) -> tuple[Any, dict[str, list[Any]]]:
+    """
+    Return the raw OCP shape for *shape*, plus the placed shapes below each named
+    node if it is an assembly (``__cad_interface__``).
+    """
+    if not hasattr(shape, "__cad_interface__"):
+        return _unwrap(shape), {}
+    d = shape.__cad_interface__(accept=_ACCEPT)  # pyright: ignore[reportAttributeAccessIssue]
+    _check_version(d)
+    if d["type"] == "shape":
+        return _decode(d), {}
+
+    shapes = [_decode(s) for s in d["shapes"]]  # shared by every node that uses them
+    leaves: list[Any] = []
+    groups: dict[str, list[Any]] = {}
+
+    def visit(node: dict[str, Any], parent: Any, names: list[str]) -> None:
+        world = parent.Multiplied(_trsf(node["location"]))
+        if node["name"]:
+            names = [*names, node["name"]]
+        if node["shape"] is not None:
+            placed = shapes[node["shape"]].Moved(TopLoc_Location(world))
+            leaves.append(placed)
+            for name in names:
+                groups.setdefault(name, []).append(placed)
+        for child in node["children"]:
+            visit(child, world, names)
+
+    visit(d["root"], gp_Trsf(), [])
+    return _make_compound(leaves), groups
+
+
+def _check_version(d: dict[str, Any]) -> None:
+    if d.get("version") != 1:
+        raise ValueError(f"Unsupported __cad_interface__ version {d.get('version')!r}")
+
+
+def _decode(d: dict[str, Any]) -> Any:
+    """Turn a ``__cad_interface__`` shape dict into a raw OCP shape."""
+    _check_version(d)
+    fmt, data = d["format"], d["data"]
+    if fmt == "ocp":
+        if not isinstance(data, TopoDS_Shape):
+            raise ValueError(
+                f"'ocp' payload is a {type(data).__name__}, not this process's "
+                "OCP.TopoDS.TopoDS_Shape"
+            )
+        return data
+    shape = TopoDS_Shape()
+    if fmt == "brep_text":
+        BRepTools.Read_s(shape, io.BytesIO(data), BRep_Builder())
+    elif fmt == "brep_binary":
+        BinTools.Read_s(shape, io.BytesIO(data))
+    else:
+        raise ValueError(f"Unsupported __cad_interface__ format {fmt!r}")
+    return shape
+
+
+def _trsf(m: list[list[float]]) -> Any:
+    t = gp_Trsf()
+    t.SetValues(*m[0], *m[1], *m[2])
+    return t
+
+
+def _make_compound(shapes: list[Any]) -> Any:
     """Bundle *shapes* into a single ``TopoDS_Compound`` for a one-shot BREP export."""
     builder = TopoDS_Builder()
     compound = TopoDS_Compound()
@@ -58,19 +144,39 @@ def _make_compound(shapes: list[Shape]) -> Any:
 
 
 def _write_brep(compound: Any, path: str) -> None:
-    """Write *compound* (as returned by :func:`_make_compound`) to *path*."""
-    BRepTools.Write_s(compound, path)
+    """
+    Write *compound* (as returned by :func:`_make_compound`) to *path*: format
+    version 1, which gmsh's bundled OCCT reads, and without any triangulation the
+    shapes carry (e.g. after being shown in a viewer), which gmsh doesn't use.
+    """
+    BRepTools.Write_s(
+        compound,
+        path,
+        False,  # no triangulation
+        False,  # no normals
+        TopTools_FormatVersion.TopTools_FormatVersion_VERSION_1,
+        Message_ProgressRange(),
+    )
 
 
-def _iter_leaves(occ: Any) -> Any:
-    """Yield *occ* itself, or its members recursively if it is a compound."""
-    if occ.ShapeType() == TopAbs_COMPOUND:
+def _iter_leaves(occ: Any, containers: tuple[Any, ...] = _CONTAINERS) -> Any:
+    """
+    Yield *occ* itself, or its members recursively if its type is one of
+    *containers*: by default the solids, faces, edges and vertices that
+    ``ShapeIndex`` indexes, e.g. the faces of a shell.
+    """
+    if occ.ShapeType() in containers:
         it = TopoDS_Iterator(occ)
         while it.More():
-            yield from _iter_leaves(it.Value())
+            yield from _iter_leaves(it.Value(), containers)
             it.Next()
     else:
         yield occ
+
+
+def _count_parts(compound: Any) -> int:
+    """Number of non-compound shapes in *compound*, e.g. the parts of an assembly."""
+    return sum(1 for _ in _iter_leaves(compound, (TopAbs_COMPOUND,)))
 
 
 class ShapeIndex:
@@ -84,7 +190,10 @@ class ShapeIndex:
     unlike ``importShapesNativePointer``.
     """
 
-    def __init__(self, compound: Any) -> None:
+    def __init__(self, compound: Any, converted: dict[int, Any] | None = None) -> None:
+        # Input objects already converted for *compound*, by id(): converting a
+        # __cad_interface__ object again may give a new, unresolvable shape.
+        self._converted = converted or {}
         self._maps: dict[int, Any] = {}
         for dim, topabs in _TOPABS_BY_DIM.items():
             m = _IndexedMapOfShape()
@@ -94,12 +203,17 @@ class ShapeIndex:
     def resolve(self, shape: Shape | list[Shape]) -> list[tuple[int, int]]:
         """Return ``(dim, tag)`` for *shape*, flattening any compound or list."""
         if isinstance(shape, list) or (
-            not hasattr(shape, "wrapped") and hasattr(shape, "__iter__")
+            not hasattr(shape, "wrapped")
+            and not hasattr(shape, "__cad_interface__")
+            and hasattr(shape, "__iter__")
         ):
             members: Any = shape
             return [dt for s in members for dt in self.resolve(s)]
+        occ = self._converted.get(id(shape))
+        if occ is None:
+            occ = _unwrap(shape)
         results: list[tuple[int, int]] = []
-        for leaf in _iter_leaves(_unwrap(shape)):
+        for leaf in _iter_leaves(occ):
             for dim, m in self._maps.items():
                 idx = m.FindIndex(leaf)
                 if idx:

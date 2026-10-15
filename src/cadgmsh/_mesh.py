@@ -8,7 +8,13 @@ import gmsh
 import meshio
 
 from cadgmsh._extract import _to_meshio
-from cadgmsh._occ import ShapeIndex, _make_compound, _write_brep
+from cadgmsh._occ import (
+    ShapeIndex,
+    _convert,
+    _count_parts,
+    _make_compound,
+    _write_brep,
+)
 from cadgmsh._types import Shape
 
 
@@ -30,7 +36,9 @@ def mesh(
     Parameters
     ----------
     shapes:
-        A single cadquery/build123d shape or a list of them.
+        A single cadquery/build123d shape or a list of them, or any object
+        implementing ``__cad_interface__``. Named nodes of such an assembly
+        become physical groups of all parts below them.
     lc:
         Characteristic length (maximum element size).
     lc_min:
@@ -69,8 +77,12 @@ def mesh(
         if lc_min is not None:
             gmsh.option.setNumber("Mesh.CharacteristicLengthMin", lc_min)
 
-        compound = _make_compound(shapes_list)
-        shape_index = ShapeIndex(compound)
+        converted = [_convert(s) for s in shapes_list]
+        compound = _make_compound([occ for occ, _ in converted])
+        shape_index = ShapeIndex(
+            compound,
+            {id(s): occ for s, (occ, _) in zip(shapes_list, converted, strict=True)},
+        )
 
         fd, path = tempfile.mkstemp(suffix=".brep")
         os.close(fd)
@@ -81,28 +93,39 @@ def mesh(
             with contextlib.suppress(OSError):
                 os.unlink(path)
 
-        if imprint and len(shapes_list) > 1:
+        # count parts, not inputs: a single assembly may hold many
+        if imprint and _count_parts(compound) > 1:
             gmsh.model.occ.fragment(dim_tags, [], removeObject=True, removeTool=True)
 
         gmsh.model.occ.synchronize()
 
-        if physical:
-            for label, value in physical.items():
-                entries: list[Shape] = value if isinstance(value, list) else [value]
-                tags_by_dim: dict[int, list[int]] = {}
-                for entry in entries:
-                    resolved = shape_index.resolve(entry)
-                    if not resolved:
-                        raise ValueError(
-                            f"physical group {label!r}: a shape did not resolve to "
-                            "any gmsh entity (it may not belong to the meshed "
-                            "shapes, or its tag was invalidated by imprint)"
-                        )
-                    for d, t in resolved:
-                        tags_by_dim.setdefault(d, []).append(t)
-                for d, tags in tags_by_dim.items():
-                    pg = gmsh.model.addPhysicalGroup(d, tags)
-                    gmsh.model.setPhysicalName(d, pg, label)
+        # Named assembly nodes become groups of every part below them; explicit
+        # labels of the same name are merged into them.
+        groups: dict[str, dict[tuple[int, int], None]] = {}
+        for _, named in converted:
+            for label, placed in named.items():
+                groups.setdefault(label, {}).update(
+                    dict.fromkeys(shape_index.resolve(placed))
+                )
+        for label, value in (physical or {}).items():
+            entries: list[Shape] = value if isinstance(value, list) else [value]
+            for entry in entries:
+                resolved = shape_index.resolve(entry)
+                if not resolved:
+                    raise ValueError(
+                        f"physical group {label!r}: a shape did not resolve to "
+                        "any gmsh entity (it may not belong to the meshed "
+                        "shapes, or its tag was invalidated by imprint)"
+                    )
+                groups.setdefault(label, {}).update(dict.fromkeys(resolved))
+
+        for label, dim_tags in groups.items():
+            tags_by_dim: dict[int, list[int]] = {}
+            for d, t in dim_tags:
+                tags_by_dim.setdefault(d, []).append(t)
+            for d, tags in tags_by_dim.items():
+                pg = gmsh.model.addPhysicalGroup(d, tags)
+                gmsh.model.setPhysicalName(d, pg, label)
 
         if algorithm is not None:
             gmsh.option.setNumber("Mesh.Algorithm", algorithm)

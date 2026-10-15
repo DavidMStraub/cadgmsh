@@ -1,4 +1,4 @@
 from cadgmsh._mesh import mesh
-from cadgmsh._types import OccShape, Shape
+from cadgmsh._types import CadInterface, OccShape, Shape
 
-__all__ = ["OccShape", "Shape", "mesh"]
+__all__ = ["CadInterface", "OccShape", "Shape", "mesh"]

@@ -70,6 +70,16 @@ class Assembly:
         return {"version": 1, "type": "assembly", "shapes": shapes, "root": root}
 
 
+class Skin:
+    """An assembly whose only part is a shell."""
+
+    def __cad_interface__(self, *, accept=None):
+        shell = BRepPrimAPI_MakeBox(1, 1, 1).Shell()
+        root = node("skin", shape=0)
+        shapes = [encode(shell, "ocp")]
+        return {"version": 1, "type": "assembly", "shapes": shapes, "root": root}
+
+
 def n_cells(mesh, label):
     return sum(len(ids) for ids in mesh.cell_sets[label])
 
@@ -88,6 +98,25 @@ def test_assembly_names_become_physical_groups():
     # the two wheels share one group, the axle holds both, the car everything
     assert n_cells(result, "axle") == n_cells(result, "wheel")
     assert n_cells(result, "car") == n_cells(result, "wheel") + n_cells(result, "body")
+
+
+def test_single_assembly_is_imprinted(monkeypatch):
+    import gmsh
+
+    calls = []
+    fragment = gmsh.model.occ.fragment
+    monkeypatch.setattr(
+        gmsh.model.occ,
+        "fragment",
+        lambda *args, **kwargs: calls.append(args) or fragment(*args, **kwargs),
+    )
+    cadgmsh.mesh(Assembly(), imprint=True, lc=0.5)  # parts don't touch
+    assert len(calls) == 1
+
+
+def test_shell_parts_resolve_to_faces():
+    result = cadgmsh.mesh(Skin(), dim=2, lc=0.5)
+    assert n_cells(result, "skin") > 0
 
 
 def test_assembly_parts_are_placed():

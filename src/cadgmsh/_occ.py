@@ -12,10 +12,13 @@ from OCP.Message import (
 )
 from OCP.TopAbs import (
     TopAbs_COMPOUND,  # pyright: ignore[reportAttributeAccessIssue]
+    TopAbs_COMPSOLID,  # pyright: ignore[reportAttributeAccessIssue]
     TopAbs_EDGE,  # pyright: ignore[reportAttributeAccessIssue]
     TopAbs_FACE,  # pyright: ignore[reportAttributeAccessIssue]
+    TopAbs_SHELL,  # pyright: ignore[reportAttributeAccessIssue]
     TopAbs_SOLID,  # pyright: ignore[reportAttributeAccessIssue]
     TopAbs_VERTEX,  # pyright: ignore[reportAttributeAccessIssue]
+    TopAbs_WIRE,  # pyright: ignore[reportAttributeAccessIssue]
 )
 from OCP.TopExp import TopExp  # pyright: ignore[reportAttributeAccessIssue]
 from OCP.TopLoc import TopLoc_Location  # pyright: ignore[reportAttributeAccessIssue]
@@ -52,6 +55,8 @@ except ImportError:  # OCCT >= 8
 from cadgmsh._types import Shape
 
 _TOPABS_BY_DIM = {3: TopAbs_SOLID, 2: TopAbs_FACE, 1: TopAbs_EDGE, 0: TopAbs_VERTEX}
+# Shapes that aren't indexed themselves, only their members are
+_CONTAINERS = (TopAbs_COMPOUND, TopAbs_COMPSOLID, TopAbs_SHELL, TopAbs_WIRE)
 
 # __cad_interface__ formats cadgmsh can turn into an OCP shape, most preferred first
 _ACCEPT = ("ocp", "brep_text", "brep_binary")
@@ -154,15 +159,24 @@ def _write_brep(compound: Any, path: str) -> None:
     )
 
 
-def _iter_leaves(occ: Any) -> Any:
-    """Yield *occ* itself, or its members recursively if it is a compound."""
-    if occ.ShapeType() == TopAbs_COMPOUND:
+def _iter_leaves(occ: Any, containers: tuple[Any, ...] = _CONTAINERS) -> Any:
+    """
+    Yield *occ* itself, or its members recursively if its type is one of
+    *containers*: by default the solids, faces, edges and vertices that
+    ``ShapeIndex`` indexes, e.g. the faces of a shell.
+    """
+    if occ.ShapeType() in containers:
         it = TopoDS_Iterator(occ)
         while it.More():
-            yield from _iter_leaves(it.Value())
+            yield from _iter_leaves(it.Value(), containers)
             it.Next()
     else:
         yield occ
+
+
+def _count_parts(compound: Any) -> int:
+    """Number of non-compound shapes in *compound*, e.g. the parts of an assembly."""
+    return sum(1 for _ in _iter_leaves(compound, (TopAbs_COMPOUND,)))
 
 
 class ShapeIndex:

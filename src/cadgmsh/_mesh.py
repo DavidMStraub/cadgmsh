@@ -8,7 +8,13 @@ import gmsh
 import meshio
 
 from cadgmsh._extract import _to_meshio
-from cadgmsh._occ import ShapeIndex, _convert, _make_compound, _write_brep
+from cadgmsh._occ import (
+    ShapeIndex,
+    _convert,
+    _count_parts,
+    _make_compound,
+    _write_brep,
+)
 from cadgmsh._types import Shape
 
 
@@ -87,7 +93,8 @@ def mesh(
             with contextlib.suppress(OSError):
                 os.unlink(path)
 
-        if imprint and len(shapes_list) > 1:
+        # count parts, not inputs: a single assembly may hold many
+        if imprint and _count_parts(compound) > 1:
             gmsh.model.occ.fragment(dim_tags, [], removeObject=True, removeTool=True)
 
         gmsh.model.occ.synchronize()

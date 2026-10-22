@@ -107,6 +107,72 @@ def test_same_name_across_dimensions_is_merged(box_mesh_with_physical):
     )
 
 
+# Higher-order nodes in meshio (VTK) order, as the corner nodes they sit
+# between: edge midpoints, face centres and the cell centre.
+# fmt: off
+HIGHER_ORDER_NODES = {
+    "line3": [(0, 1)],
+    "triangle6": [(0, 1), (1, 2), (2, 0)],
+    "quad9": [(0, 1), (1, 2), (2, 3), (3, 0), (0, 1, 2, 3)],
+    "tetra10": [(0, 1), (1, 2), (2, 0), (0, 3), (1, 3), (2, 3)],
+    "hexahedron27": [
+        (0, 1), (1, 2), (2, 3), (3, 0),
+        (4, 5), (5, 6), (6, 7), (7, 4),
+        (0, 4), (1, 5), (2, 6), (3, 7),
+        (0, 3, 7, 4), (1, 2, 6, 5), (0, 1, 5, 4), (3, 2, 6, 7),
+        (0, 1, 2, 3), (4, 5, 6, 7), tuple(range(8)),
+    ],
+}
+# fmt: on
+HIGHER_ORDER_NODES["hexahedron20"] = HIGHER_ORDER_NODES["hexahedron27"][:12]
+
+
+def check_higher_order_nodes(m):
+    """On straight-sided cells, each higher-order node is the mean of its corners."""
+    checked = set()
+    for cb in m.cells:
+        if cb.type not in HIGHER_ORDER_NODES:
+            continue
+        nodes = HIGHER_ORDER_NODES[cb.type]
+        first = cb.data.shape[1] - len(nodes)
+        for k, corners in enumerate(nodes):
+            expected = m.points[cb.data[:, list(corners)]].mean(axis=1)
+            actual = m.points[cb.data[:, first + k]]
+            np.testing.assert_allclose(
+                actual, expected, atol=1e-12, err_msg=f"{cb.type} node {first + k}"
+            )
+        checked.add(cb.type)
+    return checked
+
+
+def test_tetra10_node_order(box_mesh):
+    gmsh.model.mesh.setOrder(2)
+    checked = check_higher_order_nodes(_to_meshio())
+    assert {"line3", "triangle6", "tetra10"} <= checked
+
+
+@pytest.mark.parametrize(
+    ("incomplete", "cell_type"), [(0, "hexahedron27"), (1, "hexahedron20")]
+)
+def test_hexahedron_node_order(incomplete, cell_type):
+    gmsh.initialize()
+    try:
+        gmsh.option.setNumber("General.Terminal", 0)
+        gmsh.model.add("test")
+        gmsh.model.occ.addBox(0, 0, 0, 1, 2, 3)
+        gmsh.model.occ.synchronize()
+        gmsh.option.setNumber("Mesh.MeshSizeMax", 0.6)
+        gmsh.option.setNumber("Mesh.RecombineAll", 1)
+        gmsh.option.setNumber("Mesh.SecondOrderIncomplete", incomplete)
+        gmsh.model.mesh.setTransfiniteAutomatic()
+        gmsh.model.mesh.generate(3)
+        gmsh.model.mesh.setOrder(2)
+        checked = check_higher_order_nodes(_to_meshio())
+    finally:
+        gmsh.finalize()
+    assert cell_type in checked
+
+
 def test_node_indices_are_consecutive(box_mesh):
     idx, _, _ = gmsh.model.mesh.getNodes()
     idx -= 1

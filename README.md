@@ -42,11 +42,14 @@ cadgmsh.mesh(
     lc=None,                       # characteristic length (max element size)
     lc_min=None,                   # min characteristic length
     imprint=False,                 # boolean-fragment for conforming multi-body meshes
+    options=None,                  # dict[str, float | str] of extra gmsh options
     verbose=False,                 # show gmsh output
 ) -> meshio.Mesh
 ```
 
-**`physical`** maps string labels to shapes (solids, faces, edges, or vertices). Labels become named cell sets in the returned mesh, usable for boundary conditions and material assignment.
+**`physical`** maps string labels to shapes (solids, faces, edges, or vertices). Labels become named cell sets in the returned mesh, usable for boundary conditions and material assignment. An empty selection (e.g. `{"tip": []}`) raises `ValueError`.
+
+**`options`** passes any other [gmsh option](https://gmsh.info/doc/texinfo/gmsh.html#Options), e.g. `{"Mesh.MeshSizeFromCurvature": 12}` to refine fillets and other curved faces. They are applied before the shapes are imported and override what `lc`, `lc_min` and `algorithm` set.
 
 **`imprint`** runs `BooleanFragments` on all input shapes so that shared interfaces are meshed conformally. Required for multi-domain simulations. Note: `fragment` creates new entities for any interface it touches, so faces tagged in `physical` that lie on a shared interface won't resolve to the fragmented result — tag volumes instead.
 

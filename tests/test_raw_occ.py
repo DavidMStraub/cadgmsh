@@ -6,6 +6,7 @@ ones that ``build123d``/``cadquery`` do not yet support.
 """
 
 import meshio
+import pytest
 from OCP.BRepPrimAPI import (
     BRepPrimAPI_MakeBox,  # pyright: ignore[reportAttributeAccessIssue]
 )
@@ -45,3 +46,24 @@ def test_physical_volume():
     result = cadgmsh.mesh(b, lc=0.5, physical={"body": b})
     assert "body" in result.cell_sets
     assert sum(len(ids) for ids in result.cell_sets["body"]) > 0
+
+
+def test_empty_physical_group_raises():
+    with pytest.raises(ValueError, match="'tip' is empty"):
+        cadgmsh.mesh(box(), lc=0.5, physical={"tip": []})
+
+
+def test_options_override_arguments():
+    coarse = cadgmsh.mesh(box(), lc=0.1)
+    fine = cadgmsh.mesh(box(), lc=0.1, options={"Mesh.MeshSizeMax": 0.05})
+    assert len(fine.points) > len(coarse.points)
+
+
+def test_string_option():
+    result = cadgmsh.mesh(box(), lc=0.5, options={"General.DefaultFileName": "x"})
+    assert len(result.points) > 0
+
+
+def test_unknown_option_raises():
+    with pytest.raises(Exception, match="Could not set option"):
+        cadgmsh.mesh(box(), options={"Mesh.NoSuchOption": 1})

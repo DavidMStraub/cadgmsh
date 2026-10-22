@@ -28,6 +28,7 @@ def mesh(
     order: int = 1,
     algorithm: int | None = None,
     physical: dict[str, Shape | list[Shape]] | None = None,
+    options: dict[str, float | str] | None = None,
     verbose: bool = False,
 ) -> meshio.Mesh:
     """
@@ -62,6 +63,11 @@ def mesh(
         Dict mapping string labels to shapes (or lists of shapes).
         Each value may be a solid, face, edge, or vertex from cadquery or
         build123d. Labels become named cell sets in the returned mesh.
+    options:
+        Extra gmsh options, e.g. ``{"Mesh.MeshSizeFromCurvature": 12}``.
+        Numbers are set with ``gmsh.option.setNumber``, strings with
+        ``setString``. They are applied before the shapes are imported and
+        override the options cadgmsh sets from the other arguments.
     verbose:
         Show gmsh terminal output.
     """
@@ -76,6 +82,13 @@ def mesh(
             gmsh.option.setNumber("Mesh.CharacteristicLengthMax", lc)
         if lc_min is not None:
             gmsh.option.setNumber("Mesh.CharacteristicLengthMin", lc_min)
+        if algorithm is not None:
+            gmsh.option.setNumber("Mesh.Algorithm", algorithm)
+        for name, value in (options or {}).items():
+            if isinstance(value, str):
+                gmsh.option.setString(name, value)
+            else:
+                gmsh.option.setNumber(name, value)
 
         converted = [_convert(s) for s in shapes_list]
         compound = _make_compound([occ for occ, _ in converted])
@@ -109,6 +122,8 @@ def mesh(
                 )
         for label, value in (physical or {}).items():
             entries: list[Shape] = value if isinstance(value, list) else [value]
+            if not entries:
+                raise ValueError(f"physical group {label!r} is empty")
             for entry in entries:
                 resolved = shape_index.resolve(entry)
                 if not resolved:
@@ -126,9 +141,6 @@ def mesh(
             for d, tags in tags_by_dim.items():
                 pg = gmsh.model.addPhysicalGroup(d, tags)
                 gmsh.model.setPhysicalName(d, pg, label)
-
-        if algorithm is not None:
-            gmsh.option.setNumber("Mesh.Algorithm", algorithm)
 
         gmsh.model.mesh.generate(dim)
 

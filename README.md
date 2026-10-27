@@ -21,6 +21,47 @@ mesh = cadgmsh.mesh(
 
 Returns a [`meshio.Mesh`](https://github.com/nschloe/meshio). Works with [CadQuery](https://github.com/CadQuery/cadquery) and [build123d](https://github.com/gumyr/build123d) shapes interchangeably.
 
+## Assemblies
+
+CadQuery assemblies and build123d compounds with labelled children can be meshed directly. Every named part or sub-assembly becomes a physical group, and you can add boundary conditions as usual:
+
+```python
+from build123d import Axis, Box, Compound, Cylinder, Pos
+
+plate = Box(10, 10, 1)
+plate.label = "plate"
+pin = Pos(0, 0, 2.5) * Cylinder(1, 4)
+pin.label = "pin"
+part = Compound(children=[plate, pin], label="bracket")
+
+mesh = cadgmsh.mesh(
+    part,
+    physical={"fixed": plate.faces().sort_by(Axis.Z)[0]},
+    lc=0.5,
+)
+sorted(mesh.cell_sets)  # ['bracket', 'fixed', 'pin', 'plate']
+```
+
+The same with CadQuery:
+
+```python
+import cadquery as cq
+
+plate = cq.Workplane().box(10, 10, 1)
+pin = cq.Workplane().cylinder(4, 1)
+assy = (
+    cq.Assembly(name="bracket")
+    .add(plate, name="plate")
+    .add(pin, name="pin", loc=cq.Location((0, 0, 2.5)))
+)
+
+mesh = cadgmsh.mesh(assy, physical={"fixed": plate.faces("<Z").val()}, lc=0.5)
+```
+
+Parts that share one geometry are meshed at each of their locations. Nodes with the same name share one group, and a `physical` label with that name is merged into it. Nodes CadQuery names automatically (UUIDs) don't become groups.
+
+A face or edge in `physical` has to be at its place in the assembly. That holds for faces of parts that sit where they were built, like `plate` above. For a part that the assembly moves (the CadQuery `pin`, or a build123d part in a moved sub-compound), select from the whole assembly instead, e.g. `assy.toCompound().faces(">Z")` or `part.faces()`.
+
 ## Installation
 
 ```bash
@@ -66,7 +107,7 @@ class MyShape:
         return self._occ_shape
 ```
 
-It also accepts shapes and assemblies from any library that implements the proposed [`__cad_interface__`](https://github.com/DavidMStraub/cad-interface) protocol, in the formats `ocp`, `brep_text` or `brep_binary`. Named assembly nodes become physical groups containing every part below them; nodes with the same name share one group. A `physical` label with the same name is merged into it.
+It also accepts shapes and assemblies from any library that implements the proposed [`__cad_interface__`](https://github.com/DavidMStraub/cad-interface) protocol, in the formats `ocp`, `brep_text` or `brep_binary`. Named assembly nodes become physical groups as described under [Assemblies](#assemblies). CadQuery and build123d assemblies take the same path, through built-in adapters.
 
 ## License
 

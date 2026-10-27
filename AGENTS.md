@@ -7,6 +7,7 @@ Pythonic gmsh wrapper for meshing OCC-based CAD (cadquery / build123d). No expos
 ```
 src/cadgmsh/
 ├── __init__.py    — public API: mesh(), OccShape, Shape
+├── _adapters.py   — CadQuery / build123d assemblies → __cad_interface__ dicts ("ocp")
 ├── _types.py      — Shape alias + OccShape Protocol (centralized types)
 ├── _occ.py        — _unwrap(), _make_compound(), ShapeIndex (BREP-index-based tag resolution)
 │                    also the single OCP import boundary + the OCCT 7/8 shim
@@ -23,6 +24,10 @@ We previously used `gmsh.model.occ.importShapesNativePointer()` to import OCC to
 **Physical group resolution.** Sub-shape → gmsh tag resolution no longer relies on pointer identity (which a file round-trip destroys). Instead, `ShapeIndex` builds a `TopTools_IndexedMapOfShape` per dimension via `TopExp.MapShapes_s` over the same compound that gets written to BREP. This is the same canonical indexing algorithm `BRepTools_ShapeSet` uses internally when writing/reading BREP, so a sub-shape's index here is guaranteed to equal the gmsh tag assigned when importing that BREP file — no geometric search, no pointer identity, and it survives the OCCT-version mismatch that broke the old approach.
 
 **`__cad_interface__` input.** Objects with a `__cad_interface__` method (the proposed protocol, https://github.com/DavidMStraub/cad-interface) are asked for `ocp`, `brep_text` or `brep_binary` and decoded to a raw OCP shape in `_occ._convert`; this takes precedence over `.wrapped`. Assemblies are flattened into one compound of placed parts, and every named node becomes a physical group of the parts below it. `mesh()` converts each input once and passes the results to `ShapeIndex`, because decoding a BREP payload again would give a new shape that no longer resolves. Physical entries that are sub-shapes of a serialised (non-`ocp`) object therefore can't be resolved; whole input objects and assembly names can.
+
+**CadQuery / build123d assemblies.** `cq.Assembly` and build123d `Compound`s with children are turned into an `ocp`-format `__cad_interface__` dict by `_adapters.py` (ported from cadglue, without its encoders) and then take the protocol path above. Plain shapes, including a build123d `Compound` without children, still go through `.wrapped`. The adapters find the library from the object's MRO and only import it then. Names CadQuery generates for unnamed nodes (UUIDs) count as unnamed.
+
+**Location-tolerant resolution.** The protocol carries locations as matrices, so `_convert` places every part with a new `TopLoc_Location`. `IsSame` (and so `FindIndex`) compares location *datums*, not values, so a face the user picks from the original part no longer matches, even where it sits in exactly the same place. `ShapeIndex._find` therefore falls back to shapes with the same `TShape` (`IsPartner`) at a numerically equal location. Without it, `physical={"fixed": plate.faces()[0]}` on a build123d assembly would fail, which worked in 0.4.0 via `.wrapped`. A face of a part that the assembly moves is at a different location and correctly doesn't resolve.
 
 **BREP export options.** `_write_brep` passes format version 1 and no triangulation explicitly: the path-only `BRepTools.Write_s` overload includes any triangulation a shape carries (e.g. after being displayed), which gmsh ignores.
 
@@ -76,6 +81,7 @@ Test matrix:
 - `test_mesh.py` — full integration, requires build123d (skipped if absent)
 - `test_raw_occ.py` — same paths driven by raw `OCP` shapes only, so it runs on any supported OCCT version (this is the OCCT 8 coverage)
 - `test_cad_interface.py` — `__cad_interface__` shapes and assemblies from a hand-written producer on raw `OCP`, also OCCT-version independent
+- `test_assemblies.py` — CadQuery and build123d assemblies through `_adapters.py`; each class skips without its library
 
 ## CI
 

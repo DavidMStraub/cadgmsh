@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import math
 from typing import Any
 
 from OCP.BinTools import BinTools  # pyright: ignore[reportAttributeAccessIssue]
@@ -52,6 +53,7 @@ except ImportError:  # OCCT >= 8
         IndexedMap_TopoDS_Shape_TopTools_ShapeMapHasher as _IndexedMapOfShape,  # pyright: ignore[reportAttributeAccessIssue]
     )
 
+from cadgmsh import _adapters
 from cadgmsh._types import Shape
 
 _TOPABS_BY_DIM = {3: TopAbs_SOLID, 2: TopAbs_FACE, 1: TopAbs_EDGE, 0: TopAbs_VERTEX}
@@ -64,19 +66,27 @@ _ACCEPT = ("ocp", "brep_text", "brep_binary")
 
 def _unwrap(shape: Shape) -> Any:
     """Return the raw OCP ``TopoDS_*`` object, or pass through if already unwrapped."""
+    return _convert(shape)[0]
+
+
+def _interface(shape: Shape) -> dict[str, Any] | None:
+    """
+    The ``__cad_interface__`` dict of *shape*: its own, or one for a CadQuery or
+    build123d assembly. ``None`` for anything else.
+    """
     if hasattr(shape, "__cad_interface__"):
-        return _convert(shape)[0]
-    return shape.wrapped if hasattr(shape, "wrapped") else shape  # pyright: ignore[reportAttributeAccessIssue]
+        return shape.__cad_interface__(accept=_ACCEPT)  # pyright: ignore[reportAttributeAccessIssue]
+    return _adapters.interface(shape)
 
 
 def _convert(shape: Shape) -> tuple[Any, dict[str, list[Any]]]:
     """
     Return the raw OCP shape for *shape*, plus the placed shapes below each named
-    node if it is an assembly (``__cad_interface__``).
+    node if it is an assembly.
     """
-    if not hasattr(shape, "__cad_interface__"):
-        return _unwrap(shape), {}
-    d = shape.__cad_interface__(accept=_ACCEPT)  # pyright: ignore[reportAttributeAccessIssue]
+    d = _interface(shape)
+    if d is None:
+        return (shape.wrapped if hasattr(shape, "wrapped") else shape), {}  # pyright: ignore[reportAttributeAccessIssue]
     _check_version(d)
     if d["type"] == "shape":
         return _decode(d), {}
@@ -199,24 +209,61 @@ class ShapeIndex:
             m = _IndexedMapOfShape()
             TopExp.MapShapes_s(compound, topabs, m)
             self._maps[dim] = m
+        self._by_tshape: dict[int, list[tuple[Any, int, int]]] | None = None
 
     def resolve(self, shape: Shape | list[Shape]) -> list[tuple[int, int]]:
         """Return ``(dim, tag)`` for *shape*, flattening any compound or list."""
-        if isinstance(shape, list) or (
-            not hasattr(shape, "wrapped")
-            and not hasattr(shape, "__cad_interface__")
-            and hasattr(shape, "__iter__")
-        ):
-            members: Any = shape
-            return [dt for s in members for dt in self.resolve(s)]
         occ = self._converted.get(id(shape))
         if occ is None:
+            if isinstance(shape, list) or (
+                not hasattr(shape, "wrapped")
+                and not hasattr(shape, "__cad_interface__")
+                and not _adapters.is_assembly(shape)
+                and hasattr(shape, "__iter__")
+            ):
+                members: Any = shape
+                return [dt for s in members for dt in self.resolve(s)]
             occ = _unwrap(shape)
         results: list[tuple[int, int]] = []
         for leaf in _iter_leaves(occ):
-            for dim, m in self._maps.items():
-                idx = m.FindIndex(leaf)
-                if idx:
-                    results.append((dim, idx))
-                    break
+            dim_tag = self._find(leaf)
+            if dim_tag is not None:
+                results.append(dim_tag)
         return results
+
+    def _find(self, leaf: Any) -> tuple[int, int] | None:
+        for dim, m in self._maps.items():
+            idx = m.FindIndex(leaf)
+            if idx:
+                return dim, idx
+        # An assembly's placements are rebuilt from matrices, which gives new
+        # locations: a part's own faces are then the same geometry at the same
+        # place, but no longer the same shape.
+        for other, dim, idx in self._partners().get(_tshape_key(leaf), []):
+            if other.IsPartner(leaf) and _same_place(other, leaf):
+                return dim, idx
+        return None
+
+    def _partners(self) -> dict[int, list[tuple[Any, int, int]]]:
+        """Every indexed shape by its geometry, built on first use."""
+        if self._by_tshape is None:
+            self._by_tshape = {}
+            for dim, m in self._maps.items():
+                for idx in range(1, m.Extent() + 1):
+                    s = m.FindKey(idx)
+                    self._by_tshape.setdefault(_tshape_key(s), []).append((s, dim, idx))
+        return self._by_tshape
+
+
+def _tshape_key(shape: Any) -> int:
+    """A hash of the geometry of *shape*, regardless of location and orientation."""
+    return hash(shape.Located(TopLoc_Location()))
+
+
+def _same_place(a: Any, b: Any) -> bool:
+    ta, tb = a.Location().Transformation(), b.Location().Transformation()
+    return all(
+        math.isclose(ta.Value(i, j), tb.Value(i, j), rel_tol=1e-9, abs_tol=1e-9)
+        for i in range(1, 4)
+        for j in range(1, 5)
+    )

@@ -37,7 +37,8 @@ def mesh(
     Parameters
     ----------
     shapes:
-        A single cadquery/build123d shape or a list of them, or any object
+        A single cadquery/build123d shape or a list of them, a cadquery
+        ``Assembly``, a build123d ``Compound`` with children, or any object
         implementing ``__cad_interface__``. Named nodes of such an assembly
         become physical groups of all parts below them.
     lc:
